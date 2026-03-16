@@ -9,7 +9,7 @@ bufferSize = 1024
 
 UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 
-client_name = "Client1"
+client_name = "Client2"
 
 while True:
 

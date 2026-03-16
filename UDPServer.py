@@ -1,52 +1,43 @@
 import socket
-import time
+from queue import Queue
 
 localIP = "127.0.0.1"
 localPort = 20005
 bufferSize = 1024
 
-UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-
+UDPServerSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 UDPServerSocket.bind((localIP, localPort))
 
 print("UDP server up and listening")
 
-log_buffer = []
-MAX_BUFFER = 20
-
-log_count = 0
-start_time = time.time()
+# Queue size
+BATCH_SIZE = 5
+log_queue = Queue(maxsize=BATCH_SIZE)
 
 while True:
 
     bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-
     message = bytesAddressPair[0].decode()
 
-    address = bytesAddressPair[1]
+    # If queue not full → add log
+    if not log_queue.full():
+        log_queue.put(message)
+        print("Log buffered:", message)
 
-    # ---------- Backpressure Handling ----------
-    if len(log_buffer) >= MAX_BUFFER:
-        print("⚠ Buffer full. Dropping log.")
-        continue
+    # If queue full → process logs
+    if log_queue.full():
 
-    # ---------- Streaming Ingestion ----------
-    log_buffer.append(message)
+        print("\n---- Processing 5 Logs ----")
 
-    print("\nReceived Log:", message)
+        logs = []
 
-    # ---------- Time Ordering ----------
-    log_buffer.sort()
+        while not log_queue.empty():
+            logs.append(log_queue.get())
 
-    print("\nOrdered Logs:")
-    for log in log_buffer:
-        print(log)
+        # Time ordering
+        logs.sort()
 
-    # ---------- Throughput Evaluation ----------
-    log_count += 1
-    current_time = time.time()
+        for log in logs:
+            print(log)
 
-    if current_time - start_time >= 1:
-        print("\n🚀 Throughput:", log_count, "logs/sec")
-        log_count = 0
-        start_time = current_time
+        print("---- Queue cleared ----\n")
