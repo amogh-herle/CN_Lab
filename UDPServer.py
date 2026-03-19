@@ -3,18 +3,25 @@ import time
 import json
 from datetime import datetime
 
-HOST  = "127.0.0.1"
-PORT  = 20005
+HOST        = "127.0.0.1"
+PORT        = 20005
 BUFFER_SIZE = 4096
 
-n      = 10          # tune this — flush threshold is n, max buffer is 2n
-stats  = {"received": 0, "flushed": 0, "dropped": 0}
+n           = 5      # flush triggers at n, max buffer is 2n
+FLUSH_DELAY = 0.3     # delay between printing each log entry
+
+stats = {"received": 0, "flushed": 0, "dropped": 0}
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((HOST, PORT))
 sock.setblocking(False)
 
-log_buffer = []   # list of (timestamp_float, raw_json_string, addr)
+log_buffer   = []    # (timestamp_float, raw_json, addr)
+flush_queue  = []    # sorted entries waiting to be printed one by one
+next_flush_at = 0.0  # time.time() when next entry may be printed
+
+SLOW_THRESHOLD = int(2 * n * 0.9)
+STOP_THRESHOLD = 2 * n
 
 
 def parse_ts(ts_str):
@@ -25,40 +32,22 @@ def parse_ts(ts_str):
         return time.time()
 
 
-def flush_oldest(count):
-    """Sort buffer by timestamp and flush the oldest `count` entries."""
-    log_buffer.sort(key=lambda x: x[0])
-    to_flush = log_buffer[:count]
-    del log_buffer[:count]
-
-    print(f"\n  [ flushing {count} entries ]")
-    for _, line, _ in to_flush:
-        try:
-            e = json.loads(line)
-            print(f"  {e['timestamp']}  {e['level']:<8}  [{e['machine']}]  {e['message']}")
-        except Exception:
-            print(f"  {line}")
-
-    stats["flushed"] += count
-    print(f"  [ buffer: {len(log_buffer)}/{2*n} | received: {stats['received']} | dropped: {stats['dropped']} ]\n")
-
-
 def handle(data, addr):
-    raw = data.decode(errors="replace").strip()
+    raw   = data.decode(errors="replace").strip()
+    depth = len(log_buffer) + len(flush_queue)   # true total entries in system
 
-    # buffer completely full — stop the client entirely
-    if len(log_buffer) >= 2 * n:
+    if depth >= STOP_THRESHOLD:
         sock.sendto(b"STOP", addr)
         stats["dropped"] += 1
+        print(f"  [STOP sent -> {addr[0]}:{addr[1]}]")
         return
 
-    # buffer 90% full — slow the client down
-    if len(log_buffer) >= int(2 * n * 0.9):
+    if depth >= SLOW_THRESHOLD:
         sock.sendto(b"SLOW_DOWN", addr)
         stats["dropped"] += 1
+        print(f"  [SLOW_DOWN sent -> {addr[0]}:{addr[1]}]")
         return
 
-    # parse and add to buffer
     try:
         entry = json.loads(raw)
         ts_f  = parse_ts(entry.get("timestamp", ""))
@@ -68,24 +57,48 @@ def handle(data, addr):
     log_buffer.append((ts_f, raw, addr))
     stats["received"] += 1
 
-    # buffer hit n — flush oldest n/2 entries
-    if len(log_buffer) == n:
-        flush_count = n // 2
-        print(f"  Buffer reached {n} — sorting and flushing {flush_count} entries...")
-        flush_oldest(flush_count)
-
-    # buffer recovering below 2n//3 — tell client to speed up
-    if len(log_buffer) < (2 * n) // 3:
-        sock.sendto(b"SPEED_UP", addr)
+    # when buffer hits n, move all n entries into flush_queue (sorted)
+    if len(log_buffer) >= n:
+        print(f"  Buffer reached {n} — sorting and draining...")
+        log_buffer.sort(key=lambda x: x[0])
+        flush_queue.extend(log_buffer[:n])
+        del log_buffer[:n]
 
 
-print(f"Server on {HOST}:{PORT} | n={n} | flush at {n} | slow at 90% | stop at 100% (max {2*n})\n")
+def maybe_flush_one():
+    """Print one entry from flush_queue if enough time has passed."""
+    global next_flush_at
+    if not flush_queue:
+        return
+    if time.time() < next_flush_at:
+        return
+
+    _, line, _ = flush_queue.pop(0)
+    try:
+        e = json.loads(line)
+        print(f"  {e['timestamp']}  {e['level']:<8}  [{e['machine']}]  {e['message']}")
+    except Exception:
+        print(f"  {line}")
+
+    stats["flushed"] += 1
+    next_flush_at = time.time() + FLUSH_DELAY
+
+    if not flush_queue:
+        print(f"  [ buffer: {len(log_buffer)}/{STOP_THRESHOLD} | received: {stats['received']} | dropped: {stats['dropped']} ]\n")
+
+
+print(f"  Server {HOST}:{PORT} | n={n} | slow@{SLOW_THRESHOLD} | stop@{STOP_THRESHOLD} | delay={FLUSH_DELAY}s/entry\n")
 
 while True:
+    # receive as many packets as are waiting
     try:
-        data, addr = sock.recvfrom(BUFFER_SIZE)
-        handle(data, addr)
+        while True:
+            data, addr = sock.recvfrom(BUFFER_SIZE)
+            handle(data, addr)
     except BlockingIOError:
         pass
 
-    time.sleep(0.01)
+    # print one pending log entry if it's time
+    maybe_flush_one()
+
+    time.sleep(0.005)
