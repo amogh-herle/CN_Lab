@@ -1,79 +1,91 @@
 import socket
 import time
 import json
-import heapq
 from datetime import datetime
 
-HOST = "127.0.0.1"
-PORT = 20005
-BUFFER = 4096
-QUEUE_LIMIT = 15       # backpressure kicks in above this
-FLUSH_EVERY = 2.0      # seconds between ordered flushes
+HOST  = "127.0.0.1"
+PORT  = 20005
+BUFFER_SIZE = 4096
+
+n      = 10          # tune this — flush threshold is n, max buffer is 2n
+stats  = {"received": 0, "flushed": 0, "dropped": 0}
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((HOST, PORT))
-sock.setblocking(False)   # non-blocking so we can also do timed flushes
+sock.setblocking(False)
 
-heap  = []   # (timestamp_float, raw_json_string)
-stats = {"received": 0, "flushed": 0, "dropped": 0}
-last_flush = time.time()
+log_buffer = []   # list of (timestamp_float, raw_json_string, addr)
 
 
-def flush_logs():
-    batch = []
-    while heap:
-        batch.append(heapq.heappop(heap))
+def parse_ts(ts_str):
+    try:
+        dt = datetime.strptime(ts_str, "%H:%M:%S.%f")
+        return dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+    except Exception:
+        return time.time()
 
-    for _, line in batch:
+
+def flush_oldest(count):
+    """Sort buffer by timestamp and flush the oldest `count` entries."""
+    log_buffer.sort(key=lambda x: x[0])
+    to_flush = log_buffer[:count]
+    del log_buffer[:count]
+
+    print(f"\n  [ flushing {count} entries ]")
+    for _, line, _ in to_flush:
         try:
             e = json.loads(line)
             print(f"  {e['timestamp']}  {e['level']:<8}  [{e['machine']}]  {e['message']}")
-            stats["flushed"] += 1
         except Exception:
             print(f"  {line}")
 
-    if batch:
-        print(f"  — flushed {len(batch)} logs | received {stats['received']} | dropped {stats['dropped']}\n")
+    stats["flushed"] += count
+    print(f"  [ buffer: {len(log_buffer)}/{2*n} | received: {stats['received']} | dropped: {stats['dropped']} ]\n")
 
 
 def handle(data, addr):
     raw = data.decode(errors="replace").strip()
 
-    # backpressure: queue too deep, tell client to slow down
-    if len(heap) >= QUEUE_LIMIT:
+    # buffer completely full — stop the client entirely
+    if len(log_buffer) >= 2 * n:
+        sock.sendto(b"STOP", addr)
+        stats["dropped"] += 1
+        return
+
+    # buffer 90% full — slow the client down
+    if len(log_buffer) >= int(2 * n * 0.9):
         sock.sendto(b"SLOW_DOWN", addr)
         stats["dropped"] += 1
         return
 
-    # queue recovering, tell client it can speed up
-    if len(heap) < QUEUE_LIMIT // 3:
-        sock.sendto(b"SPEED_UP", addr)
-
+    # parse and add to buffer
     try:
-        entry  = json.loads(raw)
-        ts_str = entry.get("timestamp", "")
-        ts_dt  = datetime.strptime(ts_str, "%H:%M:%S.%f")
-        ts_f   = ts_dt.hour * 3600 + ts_dt.minute * 60 + ts_dt.second + ts_dt.microsecond / 1e6
+        entry = json.loads(raw)
+        ts_f  = parse_ts(entry.get("timestamp", ""))
     except Exception:
         ts_f = time.time()
 
-    heapq.heappush(heap, (ts_f, raw))
+    log_buffer.append((ts_f, raw, addr))
     stats["received"] += 1
 
+    # buffer hit n — flush oldest n/2 entries
+    if len(log_buffer) == n:
+        flush_count = n // 2
+        print(f"  Buffer reached {n} — sorting and flushing {flush_count} entries...")
+        flush_oldest(flush_count)
 
-print(f"Server listening on {HOST}:{PORT}  (backpressure at queue depth {QUEUE_LIMIT})\n")
+    # buffer recovering below 2n//3 — tell client to speed up
+    if len(log_buffer) < (2 * n) // 3:
+        sock.sendto(b"SPEED_UP", addr)
+
+
+print(f"Server on {HOST}:{PORT} | n={n} | flush at {n} | slow at 90% | stop at 100% (max {2*n})\n")
 
 while True:
-    # try to receive a packet
     try:
-        data, addr = sock.recvfrom(BUFFER)
+        data, addr = sock.recvfrom(BUFFER_SIZE)
         handle(data, addr)
     except BlockingIOError:
-        pass   # no packet right now, that's fine
+        pass
 
-    # flush on a timer
-    if time.time() - last_flush >= FLUSH_EVERY:
-        flush_logs()
-        last_flush = time.time()
-
-    time.sleep(0.01)   # small sleep to avoid busy-spinning
+    time.sleep(0.01)
