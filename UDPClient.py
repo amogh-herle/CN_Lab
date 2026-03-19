@@ -15,18 +15,21 @@ parser.add_argument("--name",     default="Machine-A",  help="Client/machine nam
 parser.add_argument("--interval", default=1.0,  type=float, help="Send interval in seconds")
 args = parser.parse_args()
 
-state = {
-    "machine":     args.name,
-    "interval":    args.interval,
-    "retry_after": 5.0,
-    "running":     True,
-    "stopped":     False,
-    "rapid":       False,
-    "typing":      False,
-}
-
 HOST = args.host
 PORT = args.port
+
+MAX_INTERVAL = 8.0   # backoff ceiling in seconds — change this as needed
+
+state = {
+    "machine":       args.name,
+    "interval":      args.interval,
+    "base_interval": args.interval,   # original user-set value, used for step-down
+    "retry_after":   5.0,
+    "running":       True,
+    "stopped":       False,
+    "rapid":         False,
+    "typing":        False,
+}
 
 LEVELS     = ["INFO", "INFO", "DEBUG", "WARN", "ERROR"]
 COMPONENTS = ["AuthService", "Database", "Cache", "APIGateway", "Scheduler", "FileWatcher"]
@@ -57,6 +60,14 @@ def print_help():
     print("  [h] help")
     print("  [q] quit\n")
 
+def step_down():
+    """Halve the interval toward base after recovering from backpressure."""
+    current = state["interval"]
+    base    = state["base_interval"]
+    if current > base:
+        state["interval"] = max(base, current / 2)
+        print(f"  [recovering] interval -> {state['interval']:.1f}s")
+
 def send_loop():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(0.3)
@@ -71,7 +82,7 @@ def send_loop():
             print(f"  [STOP] waiting {retry}s before retry...")
             time.sleep(retry)
             state["stopped"] = False
-            print("  [resuming]")
+            step_down()   # begin stepping back down after a stop
             continue
 
         sock.sendto(json.dumps(make_log()).encode(), (HOST, PORT))
@@ -84,11 +95,12 @@ def send_loop():
                 state["rapid"]   = False
                 print("  [STOP received]")
             elif signal == "SLOW_DOWN":
-                state["interval"] = min(state["interval"] * 2, 8.0)
+                state["interval"] = min(state["interval"] * 2, MAX_INTERVAL)
                 state["rapid"]    = False
                 print(f"  [SLOW_DOWN] interval -> {state['interval']:.1f}s")
         except socket.timeout:
-            pass
+            # no signal = server is healthy, step down gradually
+            step_down()
 
         time.sleep(0.05 if state["rapid"] else state["interval"])
 
@@ -125,8 +137,10 @@ def input_loop():
         elif ch == 'i':
             val = prompt("  Interval (seconds): ")
             try:
-                state["interval"] = max(0.1, float(val))
-                print(f"  interval -> {state['interval']}s")
+                iv = max(0.1, float(val))
+                state["interval"]      = iv
+                state["base_interval"] = iv   # reset base too
+                print(f"  interval -> {iv}s")
             except ValueError:
                 print("  invalid")
 
@@ -142,7 +156,7 @@ def input_loop():
             print_help()
 
 
-print(f"  UDP Log Client | {HOST}:{PORT} | name: {state['machine']} | interval: {state['interval']}s")
+print(f"  UDP Log Client | {HOST}:{PORT} | name: {state['machine']} | interval: {state['interval']}s | max backoff: {MAX_INTERVAL}s")
 
 threading.Thread(target=send_loop, daemon=True).start()
 
