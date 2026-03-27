@@ -41,8 +41,8 @@ throughput_last_flushed = 0
 
 def parse_ts(ts_str):
     try:
-        dt = datetime.strptime(ts_str, "%H:%M:%S.%f")
-        return dt.hour * 3600 + dt.minute * 60 + dt.second + dt.microsecond / 1e6
+        dt = datetime.strptime(ts_str, "%H:%M:%S")
+        return dt.hour * 3600 + dt.minute * 60 + dt.second
     except Exception:
         return time.time()
 

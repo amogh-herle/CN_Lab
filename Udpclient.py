@@ -46,7 +46,7 @@ def make_log():
     level = random.choice(LEVELS)
     msg   = random.choice(MESSAGES[level]).format(n=random.randint(1, 999))
     return {
-        "timestamp": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
         "machine":   state["machine"],
         "component": random.choice(COMPONENTS),
         "level":     level,

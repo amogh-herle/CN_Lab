@@ -114,3 +114,10 @@ celerybeat-schedule
 # Aggregated logs
 aggregated_logs.txt
 aggregated_logs_final.txt
+
+# Aggregated logs
+aggregated_logs.txt
+aggregated_logs_final.txt
+
+*.txt
+aggregated_logs.txt
