@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser(description="Launch n UDP servers")
 parser.add_argument("n",            type=int, help="Number of servers")
 parser.add_argument("--start-port", default=20000, type=int)
 parser.add_argument("--lb-port",    default=21000, type=int)
-parser.add_argument("--host",       default="127.0.0.1")
+parser.add_argument("--host",       default="10.30.204.238")
 args = parser.parse_args()
 
 ports = list(range(args.start_port, args.start_port + args.n))

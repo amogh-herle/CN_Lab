@@ -13,7 +13,7 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Launch n UDP log clients")
 parser.add_argument("n",          type=int)
-parser.add_argument("--host",     default="127.0.0.1")
+parser.add_argument("--host",     default="10.30.202.168")
 parser.add_argument("--port",     default=22000, type=int, help="Load balancer client-facing port")
 parser.add_argument("--interval", default=1.0, type=float)
 args = parser.parse_args()
@@ -74,7 +74,7 @@ try:
             elif ch == 'f':
                 print("  [Master] Toggling rapid fire on all clients...", flush=True)
                 for cp in ctrl_ports:
-                    master_sock.sendto(b"TOGGLE_RAPID", ("127.0.0.1", cp))
+                    master_sock.sendto(b"TOGGLE_RAPID", ("10.30.202.168", cp))
         time.sleep(0.1)
 except KeyboardInterrupt:
     pass
