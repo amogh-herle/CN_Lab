@@ -14,7 +14,8 @@ parser = argparse.ArgumentParser(description="Launch n UDP servers")
 parser.add_argument("n",            type=int, help="Number of servers")
 parser.add_argument("--start-port", default=20000, type=int)
 parser.add_argument("--lb-port",    default=21000, type=int)
-parser.add_argument("--host",       default="10.30.204.238")
+parser.add_argument("--host",       default="10.30.204.238", help="Bind IP for servers")
+parser.add_argument("--lb-host",    default="10.30.202.168", help="Load balancer IP for servers to send to")
 args = parser.parse_args()
 
 ports = list(range(args.start_port, args.start_port + args.n))
@@ -31,6 +32,7 @@ for i, port in enumerate(ports):
         ["python", "UDPServer.py",
          "--host",    args.host,
          "--port",    str(port),
+         "--lb-host", args.lb_host,
          "--lb-port", str(args.lb_port)]
     )
     processes.append(p)

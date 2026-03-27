@@ -8,12 +8,13 @@ import argparse
 from datetime import datetime
 
 parser = argparse.ArgumentParser(description="UDP Log Client")
-parser.add_argument("--host",       default="127.0.0.1", help="Server IP address")
+parser.add_argument("--host",       default="10.30.202.168", help="Server IP address")
 parser.add_argument("--port",       default=22000, type=int, help="Load balancer client port")
 parser.add_argument("--name",       default="Machine-A", help="Client/machine name")
 parser.add_argument("--interval",   default=1.0, type=float, help="Send interval in seconds")
 parser.add_argument("--headless",   action="store_true", help="No keyboard input (for background use)")
 parser.add_argument("--ctrl-port", default=0, type=int, help="Local port for master control commands")
+parser.add_argument("--ctrl-ip",    default="10.30.201.232", help="IP to bind local control to")
 args = parser.parse_args()
 
 HOST = args.host
@@ -63,7 +64,7 @@ def control_loop():
     if args.ctrl_port == 0:
         return
     ctrl_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    ctrl_sock.bind(("127.0.0.1", args.ctrl_port))
+    ctrl_sock.bind((args.ctrl_ip, args.ctrl_port))
     while True:
         data, _ = ctrl_sock.recvfrom(64)
         cmd = data.decode().strip()

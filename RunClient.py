@@ -13,7 +13,8 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Launch n UDP log clients")
 parser.add_argument("n",          type=int)
-parser.add_argument("--host",     default="10.30.202.168")
+parser.add_argument("--host",     default="10.30.202.168", help="Load balancer IP")
+parser.add_argument("--client-ip", default="10.30.201.232", help="This client machine's IP (for master control)")
 parser.add_argument("--port",     default=22000, type=int, help="Load balancer client-facing port")
 parser.add_argument("--interval", default=1.0, type=float)
 args = parser.parse_args()
@@ -49,7 +50,8 @@ for i in range(1, args.n + 1):
     cmd  = ["python", "Udpclient.py", "--headless",
             "--host", args.host, "--port", str(args.port),
             "--name", name, "--interval", str(args.interval),
-            "--ctrl-port", str(ctrl_port)]
+            "--ctrl-port", str(ctrl_port),
+            "--ctrl-ip", args.client_ip]
     p = subprocess.Popen(cmd)
     processes.append(p)
     print(f"  [{i}] {name} started (pid {p.pid}) | ctrl port {ctrl_port}")
@@ -74,7 +76,7 @@ try:
             elif ch == 'f':
                 print("  [Master] Toggling rapid fire on all clients...", flush=True)
                 for cp in ctrl_ports:
-                    master_sock.sendto(b"TOGGLE_RAPID", ("10.30.202.168", cp))
+                    master_sock.sendto(b"TOGGLE_RAPID", (args.client_ip, cp))
         time.sleep(0.1)
 except KeyboardInterrupt:
     pass
