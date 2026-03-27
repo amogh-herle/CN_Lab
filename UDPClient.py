@@ -1,108 +1,88 @@
 import socket
 import time
-import json
+import datetime
 import random
-import threading
 import sys
+import threading
 import msvcrt
-import argparse
-from datetime import datetime
 
-parser = argparse.ArgumentParser(description="UDP Log Client")
-parser.add_argument("--host",     default="127.0.0.1", help="Server IP address")
-parser.add_argument("--port",     default=20005, type=int, help="Server UDP port")
-parser.add_argument("--name",     default="Machine-A",  help="Client/machine name")
-parser.add_argument("--interval", default=1.0,  type=float, help="Send interval in seconds")
-args = parser.parse_args()
-
-HOST = args.host
-PORT = args.port
-
-MAX_INTERVAL = 8.0   # backoff ceiling in seconds — change this as needed
+loadBalancerAddress = ("127.0.0.1", 20001)
+bufferSize = 1024
+MAX_INTERVAL = 8.0
 
 state = {
-    "machine":       args.name,
-    "interval":      args.interval,
-    "base_interval": args.interval,   # original user-set value, used for step-down
-    "retry_after":   5.0,
-    "running":       True,
-    "stopped":       False,
-    "rapid":         False,
-    "typing":        False,
+    "running": True,
+    "rapid": False,
+    "interval": 1.0,
+    "base_interval": 1.0,
+    "retry_after": 5.0,
+    "stopped": False,
+    "typing": False,
+    "exit": False
 }
-
-LEVELS     = ["INFO", "INFO", "DEBUG", "WARN", "ERROR"]
-COMPONENTS = ["AuthService", "Database", "Cache", "APIGateway", "Scheduler", "FileWatcher"]
-MESSAGES   = {
-    "INFO":  ["Request completed in {n}ms", "Cache hit ratio {n}%", "Startup OK", "Config reloaded"],
-    "DEBUG": ["Query returned {n} rows", "Buffer flushed ({n} bytes)", "Retry attempt {n}/3"],
-    "WARN":  ["Slow query: {n}ms", "Memory at {n}%", "Queue depth: {n}"],
-    "ERROR": ["Connection timeout", "Write failed: constraint", "Token expired"],
-}
-
-def make_log():
-    level = random.choice(LEVELS)
-    msg   = random.choice(MESSAGES[level]).format(n=random.randint(1, 999))
-    return {
-        "timestamp": datetime.now().strftime("%H:%M:%S.%f")[:-3],
-        "machine":   state["machine"],
-        "component": random.choice(COMPONENTS),
-        "level":     level,
-        "message":   msg,
-    }
-
-def print_help():
-    print("\n  [s] start / pause")
-    print("  [f] toggle rapid fire")
-    print("  [n] set machine name")
-    print("  [i] set send interval")
-    print("  [r] set retry duration after STOP")
-    print("  [h] help")
-    print("  [q] quit\n")
 
 def step_down():
     """Halve the interval toward base after recovering from backpressure."""
     current = state["interval"]
-    base    = state["base_interval"]
+    base = state["base_interval"]
     if current > base:
         state["interval"] = max(base, current / 2)
         print(f"  [recovering] interval -> {state['interval']:.1f}s")
 
-def send_loop():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(0.3)
-
-    while True:
+def run_client(client_id):
+    UDPClientSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+    UDPClientSocket.settimeout(0.3)
+    
+    client_name = f"Client-{client_id}"
+    
+    print(f"[{client_name}] Started and sending logs to Load Balancer")
+    
+    while not state["exit"]:
         if state["typing"] or not state["running"]:
             time.sleep(0.1)
             continue
-
+        
         if state["stopped"]:
             retry = state["retry_after"]
-            print(f"  [STOP] waiting {retry}s before retry...")
+            print(f"  [{client_name}] STOP received - waiting {retry}s before retry...")
             time.sleep(retry)
             state["stopped"] = False
-            step_down()   # begin stepping back down after a stop
+            step_down()
             continue
-
-        sock.sendto(json.dumps(make_log()).encode(), (HOST, PORT))
-
+        
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        log_message = f"{timestamp} | {client_name} | Log event generated"
+        
+        UDPClientSocket.sendto(log_message.encode(), loadBalancerAddress)
+        
+        # Listen for backpressure signals
         try:
-            data, _ = sock.recvfrom(64)
-            signal  = data.decode().strip()
+            data, _ = UDPClientSocket.recvfrom(64)
+            signal = data.decode().strip()
             if signal == "STOP":
                 state["stopped"] = True
-                state["rapid"]   = False
-                print("  [STOP received]")
+                state["rapid"] = False
+                print(f"  [{client_name}] STOP received from server")
             elif signal == "SLOW_DOWN":
                 state["interval"] = min(state["interval"] * 2, MAX_INTERVAL)
-                state["rapid"]    = False
-                print(f"  [SLOW_DOWN] interval -> {state['interval']:.1f}s")
+                state["rapid"] = False
+                print(f"  [{client_name}] SLOW_DOWN received - interval -> {state['interval']:.1f}s")
         except socket.timeout:
-            # no signal = server is healthy, step down gradually
+            # No signal = server is healthy, step down gradually
             step_down()
+        
+        sleep_time = 0.05 if state["rapid"] else state["interval"]
+        time.sleep(sleep_time)
+    
+    UDPClientSocket.close()
 
-        time.sleep(0.05 if state["rapid"] else state["interval"])
+def print_help():
+    print("\n  [s] start / pause")
+    print("  [f] toggle rapid fire")
+    print("  [i] set send interval")
+    print("  [r] set retry duration after STOP")
+    print("  [h] help")
+    print("  [q] quit\n")
 
 def prompt(label):
     state["typing"] = True
@@ -113,55 +93,65 @@ def prompt(label):
 
 def input_loop():
     print_help()
-    while True:
-        ch = msvcrt.getwch()
+    while not state["exit"]:
+        if msvcrt.kbhit():
+            ch = msvcrt.getwch()
+            
+            if ch in ('q', '\x03'):
+                print("\n  Exiting all clients...")
+                state["exit"] = True
+                break
+            
+            elif ch == 's':
+                state["running"] = not state["running"]
+                print(f"  [{'running' if state['running'] else 'paused'}]")
+            
+            elif ch == 'f':
+                state["rapid"] = not state["rapid"]
+                print(f"  [rapid fire {'ON -- hammering server' if state['rapid'] else 'OFF'}]")
+            
+            elif ch == 'i':
+                val = prompt("  Interval (seconds): ")
+                try:
+                    iv = max(0.1, float(val))
+                    state["interval"] = iv
+                    state["base_interval"] = iv
+                    print(f"  interval -> {iv}s")
+                except ValueError:
+                    print("  invalid")
+            
+            elif ch == 'r':
+                val = prompt("  Retry after STOP (seconds): ")
+                try:
+                    state["retry_after"] = max(1.0, float(val))
+                    print(f"  retry -> {state['retry_after']}s")
+                except ValueError:
+                    print("  invalid")
+            
+            elif ch == 'h':
+                print_help()
+        
+        time.sleep(0.1)
 
-        if ch in ('q', '\x03'):
-            print("\n  Exiting.")
-            sys.exit(0)
-
-        elif ch == 's':
-            state["running"] = not state["running"]
-            print(f"  [{'running' if state['running'] else 'paused'}]")
-
-        elif ch == 'f':
-            state["rapid"] = not state["rapid"]
-            print(f"  [rapid fire {'ON  -- hammering server' if state['rapid'] else 'OFF'}]")
-
-        elif ch == 'n':
-            val = prompt("  Machine name: ")
-            if val:
-                state["machine"] = val
-                print(f"  name -> '{val}'")
-
-        elif ch == 'i':
-            val = prompt("  Interval (seconds): ")
-            try:
-                iv = max(0.1, float(val))
-                state["interval"]      = iv
-                state["base_interval"] = iv   # reset base too
-                print(f"  interval -> {iv}s")
-            except ValueError:
-                print("  invalid")
-
-        elif ch == 'r':
-            val = prompt("  Retry after STOP (seconds): ")
-            try:
-                state["retry_after"] = max(1.0, float(val))
-                print(f"  retry -> {state['retry_after']}s")
-            except ValueError:
-                print("  invalid")
-
-        elif ch == 'h':
-            print_help()
-
-
-print(f"  UDP Log Client | {HOST}:{PORT} | name: {state['machine']} | interval: {state['interval']}s | max backoff: {MAX_INTERVAL}s")
-
-threading.Thread(target=send_loop, daemon=True).start()
-
-try:
-    input_loop()
-except KeyboardInterrupt:
-    print("\n  Exiting.")
-    sys.exit(0)
+if __name__ == "__main__":
+    num_clients = int(sys.argv[1]) if len(sys.argv) > 1 else 3
+    
+    print(f"Starting {num_clients} clients...")
+    print(f"Load Balancer: {loadBalancerAddress[0]}:{loadBalancerAddress[1]}")
+    print(f"Send interval: {state['interval']}s | Max backoff: {MAX_INTERVAL}s")
+    
+    threads = []
+    for i in range(1, num_clients + 1):
+        thread = threading.Thread(target=run_client, args=(i,))
+        thread.daemon = True
+        thread.start()
+        threads.append(thread)
+    
+    try:
+        input_loop()
+    except KeyboardInterrupt:
+        print("\n  Exiting all clients...")
+        state["exit"] = True
+    
+    time.sleep(0.5)
+    print("All clients stopped.")
