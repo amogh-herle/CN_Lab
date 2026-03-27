@@ -1,0 +1,116 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# PyCharm / VS Code
+.idea/
+.vscode/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# macOS / Windows system files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# SQLite databases
+*.sqlite3
+db.sqlite3
+
+# Secrets / environment variables
+.env.*
+*.env
+
+# MyPy / type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
+
+# Ruff / Black / isort caches
+.ruff_cache/
+.black/
+.isort/
+
+# Flask / Django stuff
+instance/
+.webassets-cache
+
+# Sphinx documentation
+docs/_build/
+
+# PyInstaller cache
+__pycache__/
+
+# PEP 582 (local packages)
+__pypackages__/
+
+# Celery beat schedule
+celerybeat-schedule
+
+# dotenv
+.env.local
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Aggregated logs
+aggregated_logs.txt
+aggregated_logs_final.txt
