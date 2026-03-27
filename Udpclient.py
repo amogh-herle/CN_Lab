@@ -8,12 +8,12 @@ import argparse
 from datetime import datetime
 
 parser = argparse.ArgumentParser(description="UDP Log Client")
-parser.add_argument("--host",       default="10.30.202.168", help="Server IP address")
+parser.add_argument("--host",       default="10.30.202.168", help="Load Balancer IP")
 parser.add_argument("--port",       default=22000, type=int, help="Load balancer client port")
 parser.add_argument("--name",       default="Machine-A", help="Client/machine name")
 parser.add_argument("--interval",   default=1.0, type=float, help="Send interval in seconds")
 parser.add_argument("--headless",   action="store_true", help="No keyboard input (for background use)")
-parser.add_argument("--ctrl-port", default=0, type=int, help="Local port for master control commands")
+parser.add_argument("--ctrl-port",  default=0, type=int, help="Local port for master control commands")
 parser.add_argument("--ctrl-ip",    default="10.30.201.232", help="IP to bind local control to")
 args = parser.parse_args()
 
@@ -22,15 +22,21 @@ PORT = args.port
 
 MAX_INTERVAL = 16.0
 
+# How long to wait between each recovery step (seconds).
+# Each step halves the interval once; with RECOVERY_STEP_DELAY=10 it
+# takes 10s per halving, so recovering from 16s back to 1s takes ~40s.
+RECOVERY_STEP_DELAY = 10.0
+
 state = {
-    "machine":       args.name,
-    "interval":      args.interval,
-    "base_interval": args.interval,
-    "retry_after":   5.0,
-    "running":       True,
-    "stopped":       False,
-    "rapid":         False,
-    "typing":        False,
+    "machine":         args.name,
+    "interval":        args.interval,
+    "base_interval":   args.interval,
+    "retry_after":     15.0,        # wait 15s before sending after a STOP
+    "running":         True,
+    "stopped":         False,
+    "rapid":           False,
+    "typing":          False,
+    "last_recovery":   0.0,         # timestamp of last recovery step
 }
 
 LEVELS     = ["INFO", "INFO", "DEBUG", "WARN", "ERROR"]
@@ -53,12 +59,16 @@ def make_log():
         "message":   msg,
     }
 
-def step_down():
+def try_step_down():
+    """Recover interval one step toward base, but only once per RECOVERY_STEP_DELAY."""
     current = state["interval"]
     base    = state["base_interval"]
-    if current > base:
-        state["interval"] = max(base, current / 2)
-        print(f"  [{state['machine']}] [recovering] interval -> {state['interval']:.1f}s", flush=True)
+    if current <= base:
+        return
+    now = time.time()
+    if now - state["last_recovery"] >= RECOVERY_STEP_DELAY:
+        state["interval"]       = max(base, current / 2)
+        state["last_recovery"]  = now
 
 def control_loop():
     if args.ctrl_port == 0:
@@ -83,10 +93,9 @@ def send_loop():
 
         if state["stopped"]:
             retry = state["retry_after"]
-            print(f"  [{state['machine']}] [STOP] waiting {retry}s before retry...", flush=True)
+            print(f"  [{state['machine']}] [STOP] pausing {retry}s before retry...", flush=True)
             time.sleep(retry)
             state["stopped"] = False
-            step_down()
             continue
 
         sock.sendto(json.dumps(make_log()).encode(), (HOST, PORT))
@@ -101,10 +110,10 @@ def send_loop():
             elif signal == "SLOW_DOWN":
                 state["interval"] = min(state["interval"] * 2, MAX_INTERVAL)
                 state["rapid"]    = False
+                state["last_recovery"] = time.time()   # reset recovery clock
                 print(f"  [{state['machine']}] [SLOW_DOWN] interval -> {state['interval']:.1f}s", flush=True)
         except socket.timeout:
-            step_down()
-        
+            try_step_down()
 
         time.sleep(0.05 if state["rapid"] else state["interval"])
 
@@ -166,11 +175,11 @@ def input_loop():
         elif ch == 'h':
             print_help()
 
+
 threading.Thread(target=control_loop, daemon=True).start()
 threading.Thread(target=send_loop, daemon=True).start()
 
 if args.headless:
-    # background mode — just keep alive, only signals get printed
     try:
         while True:
             time.sleep(1)
