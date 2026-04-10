@@ -18,10 +18,10 @@ import argparse
 from datetime import datetime
 
 parser = argparse.ArgumentParser(description="UDP Load Balancer + Aggregator")
-parser.add_argument("--host",        default="10.184.204.118", help="Load Balancer bind IP")
+parser.add_argument("--host",        default="192.168.137.1", help="Load Balancer bind IP")
 parser.add_argument("--client-port", default=22000, type=int, help="Port clients connect to")
 parser.add_argument("--lb-port",     default=21000, type=int, help="Port servers send logs/signals back to")
-parser.add_argument("--server-host", default="10.184.204.50", help="IP address of the backend servers")
+parser.add_argument("--server-host", default="192.168.137.209", help="IP address of the backend servers")
 parser.add_argument("--servers",     default=[20000, 20001], nargs="+", type=int, help="Server ports")
 args = parser.parse_args()
 

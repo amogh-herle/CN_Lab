@@ -13,8 +13,8 @@ import argparse
 
 parser = argparse.ArgumentParser(description="Launch n UDP log clients")
 parser.add_argument("n",          type=int)
-parser.add_argument("--host",     default="10.184.204.118", help="Load balancer IP")
-parser.add_argument("--client-ip", default="10.184.204.119", help="This client machine's IP (for master control)")
+parser.add_argument("--host",     default="192.168.137.1", help="Load balancer IP")
+parser.add_argument("--client-ip", default="192.168.137.84", help="This client machine's IP (for master control)")
 parser.add_argument("--port",     default=22000, type=int, help="Load balancer client-facing port")
 parser.add_argument("--interval", default=1.0, type=float)
 args = parser.parse_args()
