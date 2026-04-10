@@ -6,9 +6,9 @@ from datetime import datetime
 from collections import deque
 
 parser = argparse.ArgumentParser(description="UDP Log Server")
-parser.add_argument("--host",    default="10.30.204.238", help="Server bind address")
+parser.add_argument("--host",    default="10.184.204.50", help="Server bind address")
 parser.add_argument("--port",    default=20005, type=int)
-parser.add_argument("--lb-host", default="10.30.202.168", help="Load balancer IP")
+parser.add_argument("--lb-host", default="10.184.204.118", help="Load balancer IP")
 parser.add_argument("--lb-port", default=21000, type=int)
 args = parser.parse_args()
 

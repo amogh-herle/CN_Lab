@@ -8,13 +8,13 @@ import argparse
 from datetime import datetime
 
 parser = argparse.ArgumentParser(description="UDP Log Client")
-parser.add_argument("--host",       default="10.30.202.168", help="Load Balancer IP")
+parser.add_argument("--host",       default="10.184.204.118", help="Load Balancer IP")
 parser.add_argument("--port",       default=22000, type=int, help="Load balancer client port")
 parser.add_argument("--name",       default="Machine-A", help="Client/machine name")
 parser.add_argument("--interval",   default=1.0, type=float, help="Send interval in seconds")
 parser.add_argument("--headless",   action="store_true", help="No keyboard input (for background use)")
 parser.add_argument("--ctrl-port",  default=0, type=int, help="Local port for master control commands")
-parser.add_argument("--ctrl-ip",    default="10.30.201.232", help="IP to bind local control to")
+parser.add_argument("--ctrl-ip",    default="10.184.204.119", help="IP to bind local control to")
 args = parser.parse_args()
 
 HOST = args.host
